@@ -25,6 +25,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+
+#include "hcsr04.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -71,10 +73,8 @@ UART_HandleTypeDef huart3;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
-volatile uint32_t startTick = 0;
-volatile uint32_t endTick = 0;
-volatile uint32_t distance = 0;
-volatile bool isFirstCapture = true;
+HCSR04_t sensor1;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -90,68 +90,10 @@ static void MX_TIM2_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void delay_us(TIM_HandleTypeDef *htim, uint16_t us)
-{
-    uint32_t start_val = __HAL_TIM_GET_COUNTER(htim);
-
-    while((__HAL_TIM_GET_COUNTER(htim) - start_val) < us);
-}
-
-void HCSR04_Trigger() {
-    // 1. Najpierw upewnij się, że przerwania są wyczyszczone/gotowe
-    __HAL_TIM_SET_COUNTER(&htim2, 0); // Opcjonalnie: reset licznika dla czytelności (niekonieczne przy odejmowaniu uint32)
-    __HAL_TIM_SET_CAPTUREPOLARITY(&htim2, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
-
-    // Włączamy nasłuchiwanie (Timer musi już tykać dzięki Base_Start w main!)
-    HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
-
-    // 2. Generujemy impuls
-    HAL_GPIO_WritePin(HC_TRIG_GPIO_Port, HC_TRIG_Pin, GPIO_PIN_SET);
-
-    // Teraz delay zadziała, bo w main włączymy timer
-    delay_us(&htim2, 10);
-
-    HAL_GPIO_WritePin(HC_TRIG_GPIO_Port, HC_TRIG_Pin, GPIO_PIN_RESET);
-}
-
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
-        if (htim->Instance == TIM2 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
+    HCSR04_ProcessISR(&sensor1, htim);
+}
 
-            if (isFirstCapture) {
-                // Złapano zbocze narastające (Start echa)
-                startTick = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
-
-                // Zmień polaryzację na zbocze opadające
-                __HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_FALLING);
-
-                isFirstCapture = false;
-            } else {
-                // Złapano zbocze opadające (Koniec echa)
-                endTick = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
-
-                // Oblicz szerokość impulsu
-                uint32_t pulseWidth = 0;
-                if (endTick >= startTick) {
-                    pulseWidth = endTick - startTick;
-                } else {
-                    // Obsługa przepełnienia licznika (overflow)
-                    pulseWidth = (0xFFFFFFFF - startTick) + endTick; // dla timera 32-bit
-                }
-
-                // Wzór: Distance (cm) = PulseWidth (us) / 58
-                distance = pulseWidth / 58;
-
-                // Reset stanu na początek
-                isFirstCapture = true;
-
-                // Zmień polaryzację z powrotem na Rising dla następnego pomiaru
-                __HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
-
-                // Opcjonalnie: Wyłącz przerwania do następnego Triggera
-                // HAL_TIM_IC_Stop_IT(htim, TIM_CHANNEL_1);
-            }
-        }
-    }
 /* USER CODE END 0 */
 
 /**
@@ -189,28 +131,27 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_TIM_Base_Start(&htim2);
+  HCSR04_Init(&sensor1, &htim2, TIM_CHANNEL_1, HC_TRIG_GPIO_Port, HC_TRIG_Pin);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  HCSR04_Trigger();
-	  HAL_Delay(250);
+	  HCSR04_Trigger(&sensor1);
+	  HAL_Delay(400);
 
     /* USER CODE END WHILE */
-
     /* USER CODE BEGIN 3 */
-	  char msg[50];
+	  char msg[64];
 
-	  if (distance < 0 || distance > 400) {
-	  	  sprintf(msg, "Blad czujnika / Brak echa\r\n");
-	  	HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
+	  if((int)sensor1.distance==0){
+		  sprintf(msg, "Blad Pomiaru \r\n");
 	  }else{
-		  sprintf(msg, "Odleglosc: %d cm\r\n", (int)distance);
-		  HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
+		  sprintf(msg, "Dystans: %d cm\r\n", (int)sensor1.distance);
 	  }
+	  HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
 
   }
   /* USER CODE END 3 */
