@@ -6,18 +6,11 @@
 typedef struct {
     TIM_HandleTypeDef *htim;
     uint32_t channel;
-    GPIO_TypeDef *trigPort;
-    uint16_t trigPin;
-
-    volatile uint32_t startTick;
-    volatile uint32_t endTick;
-    volatile uint8_t isFirstCapture;
 
     volatile float distance;
 } HCSR04_t;
 
-void HCSR04_Init(HCSR04_t *dev, TIM_HandleTypeDef *htim, uint32_t channel, GPIO_TypeDef *trigPort, uint16_t trigPin);
-void HCSR04_Trigger(HCSR04_t *dev);
+void HCSR04_Init(HCSR04_t *dev, TIM_HandleTypeDef *htim_echo, TIM_HandleTypeDef *htim_trig);
 void HCSR04_ProcessISR(HCSR04_t *dev, TIM_HandleTypeDef *htim);
 
 
