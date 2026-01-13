@@ -27,6 +27,7 @@
 #include <stdbool.h>
 
 #include "hcsr04.h"
+#include "encoder.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -68,6 +69,7 @@ ETH_HandleTypeDef heth;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart3;
 
@@ -75,9 +77,12 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
 HCSR04_t sensor1;
+Encoder_t encoder;
+
 volatile uint8_t task_uart_flag = 0;    // Flaga: Czy wysłać UART?
 volatile uint8_t task_display_flag = 0; // Flaga: Czy odświeżyć ekran?
 volatile uint32_t timer_counter = 0;    // Twój licznik cykli
+volatile uint8_t task_encoder_flag = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -88,6 +93,7 @@ static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -102,6 +108,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     // Sprawdzamy, który timer zgłosił przerwanie (ważne, bo Systick też tu trafia!)
     if (htim->Instance == TIM3) {
     	timer_counter++;
+    	task_encoder_flag = 1;
         // 2. ZADANIE: Wyświetlacz (co 200ms)
         if (timer_counter % 2 == 0) task_display_flag = 1;
         // 3. ZADANIE: UART (co 500ms)
@@ -146,9 +153,11 @@ int main(void)
   MX_USB_OTG_FS_PCD_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
   HCSR04_Init(&sensor1, &htim2, &htim3);
+  Encoder_Init(&encoder, &htim4, 5, 99);
 
   HAL_TIM_Base_Start_IT(&htim3);
 
@@ -163,21 +172,29 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	if (task_display_flag == 1) {
+	  if (task_encoder_flag) {
+	      Encoder_Update(&encoder);
+	      task_encoder_flag = 0;
+	  }
+
+	if (task_display_flag) {
 		task_display_flag = 0;
 	          // Tutaj wpisz swój kod obsługi wyświetlacza
 	          // np. LCD_Update(&sensor1.filteredDistance);
 	}
 
-	if (task_uart_flag == 1) {
+	if (task_uart_flag) {
 		task_uart_flag = 0;
 
 		char msg[64];
 
 		if((int)sensor1.distance==0) sprintf(msg, "Blad Pomiaru \r\n");
 		else sprintf(msg, "Dystans: %d cm\r\n", (int)sensor1.distance);
-
 		HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
+
+		sprintf(msg, "Zadana wartosc: %d cm\r\n", (int)encoder.targetHeight);
+		HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
+
 	}
   }
   /* USER CODE END 3 */
@@ -419,6 +436,55 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 2 */
   HAL_TIM_MspPostInit(&htim3);
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 0;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 65535;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 15;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 15;
+  if (HAL_TIM_Encoder_Init(&htim4, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
 
 }
 
