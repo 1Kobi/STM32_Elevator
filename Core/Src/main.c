@@ -30,6 +30,7 @@
 
 #include "hcsr04.h"
 #include "encoder.h"
+#include "filtr.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -78,8 +79,10 @@ UART_HandleTypeDef huart3;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
-HCSR04_t sensor1;
+HCSR04_t sensor;
 Encoder_t encoder;
+DistanceFilter_t filtr;
+
 
 volatile uint8_t task_uart_flag = 0;    // Flaga: Czy wysłać UART?
 volatile uint8_t task_display_flag = 0; // Flaga: Czy odświeżyć ekran?
@@ -103,18 +106,18 @@ static void MX_TIM4_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
-    HCSR04_ProcessISR(&sensor1, htim);
+    HCSR04_ProcessISR(&sensor, htim);
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-    // Sprawdzamy, który timer zgłosił przerwanie (ważne, bo Systick też tu trafia!)
+    // TIM3 - 50ms
     if (htim->Instance == TIM3) {
     	timer_counter++;
     	task_encoder_flag = 1;
         // 2. ZADANIE: Wyświetlacz (co 200ms)
-        if (timer_counter % 2 == 0) task_display_flag = 1;
+        if (timer_counter % 4 == 0) task_display_flag = 1;
         // 3. ZADANIE: UART (co 500ms)
-        if (timer_counter % 5 == 0) task_uart_flag = 1;
+        if (timer_counter % 10 == 0) task_uart_flag = 1;
     }
 
 }
@@ -158,8 +161,9 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
-  HCSR04_Init(&sensor1, &htim2, &htim3);
+  HCSR04_Init(&sensor, &htim2, &htim3);
   Encoder_Init(&encoder, &htim4, 5, 99);
+  DistanceFilter_Init(&filtr);
 
   HAL_TIM_Base_Start_IT(&htim3);
 
@@ -174,15 +178,18 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	  if (task_encoder_flag) {
-	      Encoder_Update(&encoder);
-	      task_encoder_flag = 0;
-	  }
+	if (task_encoder_flag) {
+		task_encoder_flag = 0;
+	    Encoder_Update(&encoder);
+
+	    DistanceFilter_Update(&filtr, (float32_t)sensor.distance);
+
+	}
 
 	if (task_display_flag) {
 		task_display_flag = 0;
 	          // Tutaj wpisz swój kod obsługi wyświetlacza
-	          // np. LCD_Update(&sensor1.filteredDistance);
+	          // np. LCD_Update(&sensor.filteredDistance);
 	}
 
 	if (task_uart_flag) {
@@ -190,8 +197,8 @@ int main(void)
 
 		char msg[64];
 
-		if((int)sensor1.distance==0) sprintf(msg, "Blad Pomiaru \r\n");
-		else sprintf(msg, "Dystans: %d cm\r\n", (int)sensor1.distance);
+		if((int)sensor.distance==0) sprintf(msg, "Blad Pomiaru \r\n");
+		else sprintf(msg, "Dystans: %d cm (Raw: %d)\r\n", (int)filtr.output, (int)sensor.distance);
 		HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
 
 		sprintf(msg, "Zadana wartosc: %d cm\r\n", (int)encoder.targetHeight);
@@ -404,7 +411,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 9599;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 999;
+  htim3.Init.Period = 499;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
