@@ -26,6 +26,8 @@
 #include <string.h>
 #include <stdbool.h>
 
+#include "arm_math.h"
+
 #include "hcsr04.h"
 #include "encoder.h"
 /* USER CODE END Includes */
