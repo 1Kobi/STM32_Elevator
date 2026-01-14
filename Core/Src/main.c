@@ -31,6 +31,7 @@
 #include "hcsr04.h"
 #include "encoder.h"
 #include "filtr.h"
+#include "regulator.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -73,6 +74,7 @@ ETH_HandleTypeDef heth;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
+TIM_HandleTypeDef htim9;
 
 UART_HandleTypeDef huart3;
 
@@ -82,8 +84,9 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 HCSR04_t sensor;
 Encoder_t encoder;
 DistanceFilter_t filtr;
+LiftController_t liftPID;
 
-
+float32_t current_pwm = 0.0f;
 volatile uint8_t task_uart_flag = 0;    // Flaga: Czy wysłać UART?
 volatile uint8_t task_display_flag = 0; // Flaga: Czy odświeżyć ekran?
 volatile uint32_t timer_counter = 0;    // Twój licznik cykli
@@ -99,6 +102,7 @@ static void MX_USB_OTG_FS_PCD_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_TIM9_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -159,13 +163,16 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
+  MX_TIM9_Init();
   /* USER CODE BEGIN 2 */
 
   HCSR04_Init(&sensor, &htim2, &htim3);
   Encoder_Init(&encoder, &htim4, 5, 99);
   DistanceFilter_Init(&filtr);
+  Lift_PID_Init(&liftPID, 50.0f, 0.0f, 0.0f);
 
   HAL_TIM_Base_Start_IT(&htim3);
+  HAL_TIM_PWM_Start(&htim9, TIM_CHANNEL_1);
 
   /* USER CODE END 2 */
 
@@ -180,10 +187,12 @@ int main(void)
 
 	if (task_encoder_flag) {
 		task_encoder_flag = 0;
-	    Encoder_Update(&encoder);
 
+	    Encoder_Update(&encoder);
 	    DistanceFilter_Update(&filtr, (float32_t)sensor.distance);
 
+	    current_pwm = Lift_PID_Compute(&liftPID, (float32_t)encoder.targetHeight, filtr.output);
+	    __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, (uint32_t)current_pwm);
 	}
 
 	if (task_display_flag) {
@@ -201,7 +210,7 @@ int main(void)
 		else sprintf(msg, "Dystans: %d cm (Raw: %d)\r\n", (int)filtr.output, (int)sensor.distance);
 		HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
 
-		sprintf(msg, "Zadana wartosc: %d cm\r\n", (int)encoder.targetHeight);
+		sprintf(msg, "Zadana wartosc: %d cm (PWM: %d)\r\n", (int)encoder.targetHeight,(int)current_pwm/10);
 		HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
 
 	}
@@ -498,6 +507,48 @@ static void MX_TIM4_Init(void)
 }
 
 /**
+  * @brief TIM9 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM9_Init(void)
+{
+
+  /* USER CODE BEGIN TIM9_Init 0 */
+
+  /* USER CODE END TIM9_Init 0 */
+
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM9_Init 1 */
+
+  /* USER CODE END TIM9_Init 1 */
+  htim9.Instance = TIM9;
+  htim9.Init.Prescaler = 4;
+  htim9.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim9.Init.Period = 999;
+  htim9.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim9.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim9) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim9, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM9_Init 2 */
+
+  /* USER CODE END TIM9_Init 2 */
+  HAL_TIM_MspPostInit(&htim9);
+
+}
+
+/**
   * @brief USART3 Initialization Function
   * @param None
   * @retval None
@@ -580,6 +631,7 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
