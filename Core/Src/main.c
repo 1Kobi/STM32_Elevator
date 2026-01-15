@@ -169,10 +169,14 @@ int main(void)
   HCSR04_Init(&sensor, &htim2, &htim3);
   Encoder_Init(&encoder, &htim4, 5, 99);
   DistanceFilter_Init(&filtr);
-  Lift_PID_Init(&liftPID, 50.0f, 0.0f, 0.0f);
+  Lift_PID_Init(&liftPID,
+          50.0f, 0.0f, 0.0f,   // Zestaw UP
+           50.0f, 0.0f, 0.0f,   // Zestaw DOWN
+          5, 1000); //deadzone i zakres
 
   HAL_TIM_Base_Start_IT(&htim3);
   HAL_TIM_PWM_Start(&htim9, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim9, TIM_CHANNEL_2);
 
   /* USER CODE END 2 */
 
@@ -191,8 +195,9 @@ int main(void)
 	    Encoder_Update(&encoder);
 	    DistanceFilter_Update(&filtr, (float32_t)sensor.distance);
 
-	    current_pwm = Lift_PID_Compute(&liftPID, (float32_t)encoder.targetHeight, filtr.output);
-	    __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, (uint32_t)current_pwm);
+	    Lift_PID_Update(&liftPID, (float32_t)encoder.targetHeight, filtr.output);
+	    __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, liftPID.out_pwm_up);
+	    __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_2, liftPID.out_pwm_down);
 	}
 
 	if (task_display_flag) {
@@ -210,7 +215,7 @@ int main(void)
 		else sprintf(msg, "Dystans: %d cm (Raw: %d)\r\n", (int)filtr.output, (int)sensor.distance);
 		HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
 
-		sprintf(msg, "Zadana wartosc: %d cm (PWM: %d)\r\n", (int)encoder.targetHeight,(int)current_pwm/10);
+		sprintf(msg, "Zadana wartosc: %d cm (PWM: %d | %d)\r\n", (int)encoder.targetHeight,(int)liftPID.out_pwm_up/10,(int)liftPID.out_pwm_down/10);
 		HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
 
 	}
@@ -538,6 +543,10 @@ static void MX_TIM9_Init(void)
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim9, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim9, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
