@@ -28,6 +28,7 @@
 
 #include "arm_math.h"
 
+#include "crc.h"
 #include "hcsr04.h"
 #include "encoder.h"
 #include "filtr.h"
@@ -120,12 +121,16 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     	task_encoder_flag = 1;
         // 2. ZADANIE: Wyświetlacz (co 200ms)
         if (timer_counter % 4 == 0) task_display_flag = 1;
-        // 3. ZADANIE: UART (co 500ms)
-        if (timer_counter % 10 == 0) task_uart_flag = 1;
+        // 3. ZADANIE: UART (co 300ms)
+        if (timer_counter % 6 == 0) task_uart_flag = 1;
     }
 
 }
 
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    CMD_RxCpltCallback(huart);
+}
 /* USER CODE END 0 */
 
 /**
@@ -165,9 +170,10 @@ int main(void)
   MX_TIM4_Init();
   MX_TIM9_Init();
   /* USER CODE BEGIN 2 */
+  CMD_Init(&huart3);
 
   HCSR04_Init(&sensor, &htim2, &htim3);
-  Encoder_Init(&encoder, &htim4, 5, 99);
+  Encoder_Init(&encoder, &htim4, 5, 50);
   DistanceFilter_Init(&filtr);
   Lift_PID_Init(&liftPID,
           50.0f, 0.0f, 0.0f,   // Zestaw UP
@@ -194,6 +200,7 @@ int main(void)
 
 	    Encoder_Update(&encoder);
 	    DistanceFilter_Update(&filtr, (float32_t)sensor.distance);
+	    CMD_Process();
 
 	    Lift_PID_Update(&liftPID, (float32_t)encoder.targetHeight, filtr.output);
 	    __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, liftPID.out_pwm_up);
@@ -211,12 +218,13 @@ int main(void)
 
 		char msg[64];
 
-		if((int)sensor.distance==0) sprintf(msg, "Blad Pomiaru \r\n");
-		else sprintf(msg, "Dystans: %d cm (Raw: %d)\r\n", (int)filtr.output, (int)sensor.distance);
-		HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
-
-		sprintf(msg, "Zadana wartosc: %d cm (PWM: %d | %d)\r\n", (int)encoder.targetHeight,(int)liftPID.out_pwm_up/10,(int)liftPID.out_pwm_down/10);
-		HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
+		int len = sprintf(msg, "$%d,%d,%d,%d,%d;\n",
+		                  (int)filtr.output,       // 1. Dystans filtrowany
+		                  (int)sensor.distance,    // 2. Dystans surowy (Raw)
+		                  (int)encoder.targetHeight, // 3. Zadana wysokość
+		                  (int)liftPID.out_pwm_up,   // 4. PWM Góra
+		                  (int)liftPID.out_pwm_down);// 5. PWM Dół
+		HAL_UART_Transmit(&huart3, (uint8_t*)msg, len, 100);
 
 	}
   }
