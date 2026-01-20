@@ -1,4 +1,4 @@
-#include "encoder.h"
+#include "../Peryferia/encoder.h"
 
 void Encoder_Init(Encoder_t *enc, TIM_HandleTypeDef *htim, int32_t min, int32_t max) {
     enc->htim = htim;

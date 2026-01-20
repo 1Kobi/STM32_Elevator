@@ -1,6 +1,6 @@
 #include "crc.h"
-#include "encoder.h"
 #include <stdio.h>
+#include "../Peryferia/encoder.h"
 
 extern UART_HandleTypeDef huart3;
 extern Encoder_t encoder;

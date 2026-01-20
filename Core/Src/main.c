@@ -29,10 +29,11 @@
 #include "arm_math.h"
 
 #include "crc.h"
-#include "hcsr04.h"
-#include "encoder.h"
 #include "filtr.h"
 #include "regulator.h"
+#include "lcd_i2c.h"
+#include "encoder.h"
+#include "hcsr04.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -72,6 +73,8 @@ ETH_TxPacketConfig TxConfig;
 
 ETH_HandleTypeDef heth;
 
+I2C_HandleTypeDef hi2c1;
+
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
@@ -86,12 +89,14 @@ HCSR04_t sensor;
 Encoder_t encoder;
 DistanceFilter_t filtr;
 LiftController_t liftPID;
+LCD_t lcd;
 
 float32_t current_pwm = 0.0f;
 volatile uint8_t task_uart_flag = 0;    // Flaga: Czy wysłać UART?
 volatile uint8_t task_display_flag = 0; // Flaga: Czy odświeżyć ekran?
 volatile uint32_t timer_counter = 0;    // Twój licznik cykli
 volatile uint8_t task_encoder_flag = 0;
+extern I2C_HandleTypeDef hi2c1;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -104,6 +109,7 @@ static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_TIM9_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -169,11 +175,13 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_TIM9_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   CMD_Init(&huart3);
 
   HCSR04_Init(&sensor, &htim2, &htim3);
   Encoder_Init(&encoder, &htim4, 5, 50);
+  LCD_Init(&lcd, &hi2c1, 16, 2);
   DistanceFilter_Init(&filtr);
   Lift_PID_Init(&liftPID,
           50.0f, 0.0f, 0.0f,   // Zestaw UP
@@ -201,7 +209,6 @@ int main(void)
 	    Encoder_Update(&encoder);
 	    DistanceFilter_Update(&filtr, (float32_t)sensor.distance);
 	    CMD_Process();
-
 	    Lift_PID_Update(&liftPID, (float32_t)encoder.targetHeight, filtr.output);
 	    __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, liftPID.out_pwm_up);
 	    __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_2, liftPID.out_pwm_down);
@@ -209,8 +216,16 @@ int main(void)
 
 	if (task_display_flag) {
 		task_display_flag = 0;
-	          // Tutaj wpisz swój kod obsługi wyświetlacza
-	          // np. LCD_Update(&sensor.filteredDistance);
+
+		char lcd_buffer[20];
+
+		LCD_SetCursor(&lcd, 0, 0);
+		sprintf(lcd_buffer, "Cel: %-3dcm     ", (int)encoder.targetHeight);
+		LCD_Print(&lcd, lcd_buffer);
+
+		LCD_SetCursor(&lcd, 0, 1);
+		sprintf(lcd_buffer, "Akt: %-3dcm    ", (int)sensor.distance);
+		LCD_Print(&lcd, lcd_buffer);
 	}
 
 	if (task_uart_flag) {
@@ -334,6 +349,54 @@ static void MX_ETH_Init(void)
   /* USER CODE BEGIN ETH_Init 2 */
 
   /* USER CODE END ETH_Init 2 */
+
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x20303E5D;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
 
 }
 
