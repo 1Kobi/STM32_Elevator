@@ -224,7 +224,7 @@ int main(void)
 		LCD_Print(&lcd, lcd_buffer);
 
 		LCD_SetCursor(&lcd, 0, 1);
-		sprintf(lcd_buffer, "Akt: %-3dcm    ", (int)sensor.distance);
+		sprintf(lcd_buffer, "Akt: %.1f cm    ", filtr.output);
 		LCD_Print(&lcd, lcd_buffer);
 	}
 
@@ -600,7 +600,7 @@ static void MX_TIM9_Init(void)
 
   /* USER CODE END TIM9_Init 1 */
   htim9.Instance = TIM9;
-  htim9.Init.Prescaler = 4;
+  htim9.Init.Prescaler = 959;
   htim9.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim9.Init.Period = 999;
   htim9.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
