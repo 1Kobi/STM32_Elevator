@@ -4,8 +4,8 @@ void Encoder_Init(Encoder_t *enc, TIM_HandleTypeDef *htim, int32_t min, int32_t 
     enc->htim = htim;
     enc->minHeight = min;
     enc->maxHeight = max;
-    enc->targetHeight = min; // Startujemy od parteru
-    enc->pulsesPerCm = 2.0f; // Np. 2 kliknięcia to 1 cm (dobierz eksperymentalnie)
+    enc->targetHeight = min;
+    enc->pulsesPerCm = 4.0f;
 
     __HAL_TIM_SET_COUNTER(htim, 0);
     enc->lastCounterValue = 0;

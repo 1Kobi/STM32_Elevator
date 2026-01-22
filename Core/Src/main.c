@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "string.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -84,6 +85,27 @@ UART_HandleTypeDef huart3;
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
+/* Definitions for ControlTask */
+osThreadId_t ControlTaskHandle;
+const osThreadAttr_t ControlTask_attributes = {
+  .name = "ControlTask",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityHigh,
+};
+/* Definitions for DisplayTask */
+osThreadId_t DisplayTaskHandle;
+const osThreadAttr_t DisplayTask_attributes = {
+  .name = "DisplayTask",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for UARTTask */
+osThreadId_t UARTTaskHandle;
+const osThreadAttr_t UARTTask_attributes = {
+  .name = "UARTTask",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 /* USER CODE BEGIN PV */
 HCSR04_t sensor;
 Encoder_t encoder;
@@ -92,11 +114,8 @@ LiftController_t liftPID;
 LCD_t lcd;
 
 float32_t current_pwm = 0.0f;
-volatile uint8_t task_uart_flag = 0;    // Flaga: Czy wysłać UART?
-volatile uint8_t task_display_flag = 0; // Flaga: Czy odświeżyć ekran?
-volatile uint32_t timer_counter = 0;    // Twój licznik cykli
-volatile uint8_t task_encoder_flag = 0;
 extern I2C_HandleTypeDef hi2c1;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -110,6 +129,10 @@ static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_TIM9_Init(void);
 static void MX_I2C1_Init(void);
+void StartControlTask(void *argument);
+void StartDisplayTask(void *argument);
+void StartUARTTask(void *argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -120,18 +143,6 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
     HCSR04_ProcessISR(&sensor, htim);
 }
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-    // TIM3 - 50ms
-    if (htim->Instance == TIM3) {
-    	timer_counter++;
-    	task_encoder_flag = 1;
-        // 2. ZADANIE: Wyświetlacz (co 200ms)
-        if (timer_counter % 4 == 0) task_display_flag = 1;
-        // 3. ZADANIE: UART (co 300ms)
-        if (timer_counter % 6 == 0) task_uart_flag = 1;
-    }
-
-}
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
@@ -194,6 +205,48 @@ int main(void)
 
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of ControlTask */
+  ControlTaskHandle = osThreadNew(StartControlTask, NULL, &ControlTask_attributes);
+
+  /* creation of DisplayTask */
+  DisplayTaskHandle = osThreadNew(StartDisplayTask, NULL, &DisplayTask_attributes);
+
+  /* creation of UARTTask */
+  UARTTaskHandle = osThreadNew(StartUARTTask, NULL, &UARTTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -202,47 +255,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-	if (task_encoder_flag) {
-		task_encoder_flag = 0;
-
-	    Encoder_Update(&encoder);
-	    DistanceFilter_Update(&filtr, (float32_t)sensor.distance);
-	    CMD_Process();
-	    Lift_PID_Update(&liftPID, (float32_t)encoder.targetHeight, filtr.output);
-	    __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, liftPID.out_pwm_up);
-	    __HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_2, liftPID.out_pwm_down);
-	}
-
-	if (task_display_flag) {
-		task_display_flag = 0;
-
-		char lcd_buffer[20];
-
-		LCD_SetCursor(&lcd, 0, 0);
-		sprintf(lcd_buffer, "Cel: %-3dcm     ", (int)encoder.targetHeight);
-		LCD_Print(&lcd, lcd_buffer);
-
-		LCD_SetCursor(&lcd, 0, 1);
-		sprintf(lcd_buffer, "Akt: %.1f cm    ", filtr.output);
-		LCD_Print(&lcd, lcd_buffer);
-	}
-
-	if (task_uart_flag) {
-		task_uart_flag = 0;
-
-		char msg[64];
-
-		int len = sprintf(msg, "$%d,%d,%d,%d,%d;\n",
-		                  (int)filtr.output,       // 1. Dystans filtrowany
-		                  (int)sensor.distance,    // 2. Dystans surowy (Raw)
-		                  (int)encoder.targetHeight, // 3. Zadana wysokość
-		                  (int)liftPID.out_pwm_up,   // 4. PWM Góra
-		                  (int)liftPID.out_pwm_down);// 5. PWM Dół
-		HAL_UART_Transmit(&huart3, (uint8_t*)msg, len, 100);
-
-	}
   }
+
   /* USER CODE END 3 */
 }
 
@@ -759,6 +773,109 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartControlTask */
+/**
+  * @brief  Function implementing the ControlTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartControlTask */
+void StartControlTask(void *argument)
+{
+  /* USER CODE BEGIN 5 */
+	TickType_t xLastWakeTime;
+	xLastWakeTime = xTaskGetTickCount();
+  /* Infinite loop */
+  for(;;)
+  {
+	Encoder_Update(&encoder);
+	DistanceFilter_Update(&filtr, (float32_t)sensor.distance);
+	CMD_Process();
+	Lift_PID_Update(&liftPID, (float32_t)encoder.targetHeight, filtr.output);
+	__HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, liftPID.out_pwm_up);
+	__HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_2, liftPID.out_pwm_down);
+
+	vTaskDelayUntil(&xLastWakeTime, 50);
+  }
+  /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartDisplayTask */
+/**
+* @brief Function implementing the DisplayTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartDisplayTask */
+void StartDisplayTask(void *argument)
+{
+  /* USER CODE BEGIN StartDisplayTask */
+	char lcd_buffer[20];
+  /* Infinite loop */
+  for(;;)
+  {
+	LCD_SetCursor(&lcd, 0, 0);
+	sprintf(lcd_buffer, "Cel: %-3dcm     ", (int)encoder.targetHeight);
+	LCD_Print(&lcd, lcd_buffer);
+
+	LCD_SetCursor(&lcd, 0, 1);
+	sprintf(lcd_buffer, "Akt: %.1f cm    ", filtr.output);
+	LCD_Print(&lcd, lcd_buffer);
+
+    osDelay(300);
+  }
+  /* USER CODE END StartDisplayTask */
+}
+
+/* USER CODE BEGIN Header_StartUARTTask */
+/**
+* @brief Function implementing the UARTTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUARTTask */
+void StartUARTTask(void *argument)
+{
+  /* USER CODE BEGIN StartUARTTask */
+	char msg[64];
+  /* Infinite loop */
+  for(;;)
+  {
+	int len = sprintf(msg, "$%d,%d,%d,%d,%d;\n",
+	  		                  (int)filtr.output,       // 1. Dystans filtrowany
+	  		                  (int)sensor.distance,    // 2. Dystans surowy (Raw)
+	  		                  (int)encoder.targetHeight, // 3. Zadana wysokość
+	  		                  (int)liftPID.out_pwm_up,   // 4. PWM Góra
+	  		                  (int)liftPID.out_pwm_down);// 5. PWM Dół
+	HAL_UART_Transmit(&huart3, (uint8_t*)msg, len, 100);
+
+    osDelay(250);
+  }
+  /* USER CODE END StartUARTTask */
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM6 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM6)
+  {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
