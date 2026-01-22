@@ -39,7 +39,13 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct {
+    float dist_filtered;  // Zmienna z 'filtr'
+    float dist_raw;       // Zmienna z 'sensor'
+    int target_h;         // Zmienna z 'encoder'
+    int pwm_up;           // Zmienna z 'liftPID'
+    int pwm_down;         // Zmienna z 'liftPID'
+} ElevatorData_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -82,6 +88,7 @@ TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim9;
 
 UART_HandleTypeDef huart3;
+DMA_HandleTypeDef hdma_usart3_tx;
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
@@ -116,11 +123,15 @@ LCD_t lcd;
 float32_t current_pwm = 0.0f;
 extern I2C_HandleTypeDef hi2c1;
 
+osSemaphoreId_t UartTxSemaphoreHandle;
+osMessageQueueId_t elevatorQueueHandle;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_ETH_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
@@ -179,6 +190,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_ETH_Init();
   MX_USART3_UART_Init();
   MX_USB_OTG_FS_PCD_Init();
@@ -213,7 +225,8 @@ int main(void)
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
+  UartTxSemaphoreHandle = osSemaphoreNew(1, 0, NULL);
+
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -221,7 +234,7 @@ int main(void)
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
+  elevatorQueueHandle = osMessageQueueNew(10, sizeof(ElevatorData_t), NULL);
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -713,6 +726,22 @@ static void MX_USB_OTG_FS_PCD_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -771,7 +800,13 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART3)
+    {
+        osSemaphoreRelease(UartTxSemaphoreHandle);
+    }
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartControlTask */
@@ -784,8 +819,9 @@ static void MX_GPIO_Init(void)
 void StartControlTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-	TickType_t xLastWakeTime;
-	xLastWakeTime = xTaskGetTickCount();
+	TickType_t xLastWakeTime = xTaskGetTickCount();
+	static uint8_t send_counter = 0;
+	ElevatorData_t dataSnapshot;
   /* Infinite loop */
   for(;;)
   {
@@ -796,7 +832,22 @@ void StartControlTask(void *argument)
 	__HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, liftPID.out_pwm_up);
 	__HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_2, liftPID.out_pwm_down);
 
-	vTaskDelayUntil(&xLastWakeTime, 50);
+	send_counter++;
+	if (send_counter >= 5){
+		send_counter = 0;
+
+		dataSnapshot.dist_filtered = filtr.output;
+		taskENTER_CRITICAL();
+		dataSnapshot.dist_raw = sensor.distance;
+		taskEXIT_CRITICAL();
+		dataSnapshot.target_h = encoder.targetHeight;
+		dataSnapshot.pwm_up = liftPID.out_pwm_up;
+		dataSnapshot.pwm_down = liftPID.out_pwm_down;
+
+		osMessageQueuePut(elevatorQueueHandle, &dataSnapshot, 0, 0);
+	}
+
+	vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(50));
   }
   /* USER CODE END 5 */
 }
@@ -838,19 +889,28 @@ void StartDisplayTask(void *argument)
 void StartUARTTask(void *argument)
 {
   /* USER CODE BEGIN StartUARTTask */
-	char msg[64];
+	char msg[128];
+	ElevatorData_t receivedData;
+	osStatus_t status;
   /* Infinite loop */
   for(;;)
   {
-	int len = sprintf(msg, "$%d,%d,%d,%d,%d;\n",
-	  		                  (int)filtr.output,       // 1. Dystans filtrowany
-	  		                  (int)sensor.distance,    // 2. Dystans surowy (Raw)
-	  		                  (int)encoder.targetHeight, // 3. Zadana wysokość
-	  		                  (int)liftPID.out_pwm_up,   // 4. PWM Góra
-	  		                  (int)liftPID.out_pwm_down);// 5. PWM Dół
-	HAL_UART_Transmit(&huart3, (uint8_t*)msg, len, 100);
+	status = osMessageQueueGet(elevatorQueueHandle, &receivedData, NULL, osWaitForever);
 
-    osDelay(250);
+	if (status == osOK) {
+		int len = snprintf(msg, sizeof(msg), "$%d,%d,%d,%d,%d;\n",
+	                          (int)receivedData.dist_filtered,
+	                          (int)receivedData.dist_raw,
+	                          (int)receivedData.target_h,
+	                          (int)receivedData.pwm_up,
+	                          (int)receivedData.pwm_down);
+
+		SCB_CleanDCache_by_Addr((uint32_t*)msg, len);
+
+		if (HAL_UART_Transmit_DMA(&huart3, (uint8_t*)msg, len) == HAL_OK){
+			osSemaphoreAcquire(UartTxSemaphoreHandle, osWaitForever);
+		}
+	}
   }
   /* USER CODE END StartUARTTask */
 }

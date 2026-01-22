@@ -24,7 +24,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "stm32f7xx_hal.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,11 +56,15 @@
 void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName);
 
 /* USER CODE BEGIN 4 */
-void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
+void vApplicationStackOverflowHook(TaskHandle_t xTask, signed char *pcTaskName)
 {
-   /* Run time stack overflow checking is performed if
-   configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2. This hook function is
-   called if a stack overflow is detected. */
+    // ALARM: Przepełnienie stosu!
+    __disable_irq();
+    while(1) {
+        // Mrugaj czerwoną diodą LD3
+        HAL_GPIO_TogglePin(LD3_GPIO_Port, LD3_Pin);
+        for(volatile int i=0; i<1000000; i++);
+    }
 }
 /* USER CODE END 4 */
 
