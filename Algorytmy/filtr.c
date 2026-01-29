@@ -2,9 +2,8 @@
 #include <string.h>
 
 void DistanceFilter_Init(DistanceFilter_t *filtr) {
-	static const float32_t my_coeffs[FIR_TAPS] = {0.00000f, 0.00930f, 0.04758f,
-			0.12236f, 0.20225f, 0.23702f, 0.20225f,
-			0.12236f, 0.04758f, 0.00930f, 0.00000f};
+	static const float32_t my_coeffs[FIR_TAPS] = {0.01350f, 0.07845f, 0.24086f,
+			0.33438f, 0.24086f, 0.07845f, 0.01350f};
 
 	memcpy(filtr->coeffs, my_coeffs, sizeof(my_coeffs));
 	memset(filtr->state, 0, sizeof(filtr->state));

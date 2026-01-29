@@ -6,7 +6,7 @@
 typedef struct {
     TIM_HandleTypeDef *htim;
 
-    volatile int32_t targetHeight;
+    volatile float targetHeight;
     int32_t offset;
 
     int32_t minHeight;
@@ -17,7 +17,7 @@ typedef struct {
     uint32_t lastCounterValue;
 } Encoder_t;
 
-void Encoder_Init(Encoder_t *enc, TIM_HandleTypeDef *htim, int32_t min, int32_t max);
+void Encoder_Init(Encoder_t *enc, TIM_HandleTypeDef *htim, int32_t min, int32_t max, int32_t start_val);
 void Encoder_Update(Encoder_t *enc);
 int32_t Encoder_GetTarget(Encoder_t *enc);
 

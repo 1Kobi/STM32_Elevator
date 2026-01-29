@@ -3,7 +3,7 @@
 
 #include "arm_math.h"
 
-#define FIR_TAPS 11
+#define FIR_TAPS 7
 #define FIR_BLOCK_SIZE 1
 
 typedef struct {

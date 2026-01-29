@@ -1,7 +1,7 @@
 #include "regulator.h"
 #include <math.h>
 
-void Lift_PID_Init(LiftController_t *lift,
+void Lift_PID_Init_regulator(LiftController_t *lift,
         float kp_up, float ki_up, float kd_up,
         float kp_down, float ki_down, float kd_down,
         int32_t deadzone, int32_t max_pwm) {
@@ -52,7 +52,7 @@ void Lift_PID_Update(LiftController_t *lift, float32_t target, float32_t current
             lift->out_pwm_down = pwm;
 	}
 
-    if (fabs(error) < 0.5f) {
+    if (fabs(error) < 1.0f) {
             lift->out_pwm_up = 0;
             lift->out_pwm_down = 0;
             arm_pid_init_f32(&lift->PID, 0); //reset calki

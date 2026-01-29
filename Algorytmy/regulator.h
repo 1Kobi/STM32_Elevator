@@ -16,7 +16,7 @@ typedef struct {
 
 } LiftController_t;
 
-void Lift_PID_Init(LiftController_t *lift,
+void Lift_PID_Init_regulator(LiftController_t *lift,
         float kp_up, float ki_up, float kd_up,
         float kp_down, float ki_down, float kd_down,
         int32_t deadzone, int32_t max_pwm);

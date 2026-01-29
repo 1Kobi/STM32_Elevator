@@ -35,6 +35,7 @@
 #include "lcd_i2c.h"
 #include "encoder.h"
 #include "hcsr04.h"
+#include "wlasny_PID.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -86,6 +87,8 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim9;
+TIM_HandleTypeDef htim11;
+TIM_HandleTypeDef htim13;
 
 UART_HandleTypeDef huart3;
 DMA_HandleTypeDef hdma_usart3_tx;
@@ -117,7 +120,7 @@ const osThreadAttr_t UARTTask_attributes = {
 HCSR04_t sensor;
 Encoder_t encoder;
 DistanceFilter_t filtr;
-LiftController_t liftPID;
+PID_Controller liftPID;
 LCD_t lcd;
 
 float32_t current_pwm = 0.0f;
@@ -140,6 +143,8 @@ static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_TIM9_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_TIM11_Init(void);
+static void MX_TIM13_Init(void);
 void StartControlTask(void *argument);
 void StartDisplayTask(void *argument);
 void StartUARTTask(void *argument);
@@ -199,21 +204,29 @@ int main(void)
   MX_TIM4_Init();
   MX_TIM9_Init();
   MX_I2C1_Init();
+  MX_TIM11_Init();
+  MX_TIM13_Init();
   /* USER CODE BEGIN 2 */
   CMD_Init(&huart3);
 
   HCSR04_Init(&sensor, &htim2, &htim3);
-  Encoder_Init(&encoder, &htim4, 5, 50);
+  int timeout = 0;
+  while (sensor.distance <= 0.1f && timeout < 20) {
+      HAL_Delay(50);
+      timeout++;
+  }
+  int32_t start_pos = (int32_t)sensor.distance;
+  if (start_pos < 5) start_pos = 5;
+
+  Encoder_Init(&encoder, &htim4, 5, 40, start_pos);
+
   LCD_Init(&lcd, &hi2c1, 16, 2);
   DistanceFilter_Init(&filtr);
-  Lift_PID_Init(&liftPID,
-          50.0f, 0.0f, 0.0f,   // Zestaw UP
-           50.0f, 0.0f, 0.0f,   // Zestaw DOWN
-          5, 1000); //deadzone i zakres
+  Lift_PID_Init(&liftPID);
 
   HAL_TIM_Base_Start_IT(&htim3);
-  HAL_TIM_PWM_Start(&htim9, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim9, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim11, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim13, TIM_CHANNEL_1);
 
   /* USER CODE END 2 */
 
@@ -523,7 +536,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 9599;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 499;
+  htim3.Init.Period = 249;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -656,6 +669,98 @@ static void MX_TIM9_Init(void)
 }
 
 /**
+  * @brief TIM11 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM11_Init(void)
+{
+
+  /* USER CODE BEGIN TIM11_Init 0 */
+
+  /* USER CODE END TIM11_Init 0 */
+
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM11_Init 1 */
+
+  /* USER CODE END TIM11_Init 1 */
+  htim11.Instance = TIM11;
+  htim11.Init.Prescaler = 959;
+  htim11.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim11.Init.Period = 999;
+  htim11.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim11.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim11) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim11) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim11, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM11_Init 2 */
+
+  /* USER CODE END TIM11_Init 2 */
+  HAL_TIM_MspPostInit(&htim11);
+
+}
+
+/**
+  * @brief TIM13 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM13_Init(void)
+{
+
+  /* USER CODE BEGIN TIM13_Init 0 */
+
+  /* USER CODE END TIM13_Init 0 */
+
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM13_Init 1 */
+
+  /* USER CODE END TIM13_Init 1 */
+  htim13.Instance = TIM13;
+  htim13.Init.Prescaler = 959;
+  htim13.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim13.Init.Period = 999;
+  htim13.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim13.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim13) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim13) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim13, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM13_Init 2 */
+
+  /* USER CODE END TIM13_Init 2 */
+  HAL_TIM_MspPostInit(&htim13);
+
+}
+
+/**
   * @brief USART3 Initialization Function
   * @param None
   * @retval None
@@ -756,6 +861,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
@@ -763,7 +869,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOG_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LD1_Pin|LD3_Pin|LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LD1_Pin|LD2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(USB_PowerSwitchOn_GPIO_Port, USB_PowerSwitchOn_Pin, GPIO_PIN_RESET);
@@ -774,8 +880,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(USER_Btn_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LD1_Pin LD3_Pin LD2_Pin */
-  GPIO_InitStruct.Pin = LD1_Pin|LD3_Pin|LD2_Pin;
+  /*Configure GPIO pins : LD1_Pin LD2_Pin */
+  GPIO_InitStruct.Pin = LD1_Pin|LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -826,11 +932,11 @@ void StartControlTask(void *argument)
   for(;;)
   {
 	Encoder_Update(&encoder);
-	DistanceFilter_Update(&filtr, (float32_t)sensor.distance);
+	DistanceFilter_Update(&filtr, sensor.distance);
 	CMD_Process();
-	Lift_PID_Update(&liftPID, (float32_t)encoder.targetHeight, filtr.output);
-	__HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_1, liftPID.out_pwm_up);
-	__HAL_TIM_SET_COMPARE(&htim9, TIM_CHANNEL_2, liftPID.out_pwm_down);
+	Lift_PID_Update_Transparent(&liftPID, encoder.targetHeight, filtr.output);
+	__HAL_TIM_SET_COMPARE(&htim13, TIM_CHANNEL_1, liftPID.out_pwm_up);
+	__HAL_TIM_SET_COMPARE(&htim11, TIM_CHANNEL_1, liftPID.out_pwm_down);
 
 	send_counter++;
 	if (send_counter >= 5){
@@ -847,7 +953,7 @@ void StartControlTask(void *argument)
 		osMessageQueuePut(elevatorQueueHandle, &dataSnapshot, 0, 0);
 	}
 
-	vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(50));
+	vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(25));
   }
   /* USER CODE END 5 */
 }
@@ -867,7 +973,7 @@ void StartDisplayTask(void *argument)
   for(;;)
   {
 	LCD_SetCursor(&lcd, 0, 0);
-	sprintf(lcd_buffer, "Cel: %-3dcm     ", (int)encoder.targetHeight);
+	sprintf(lcd_buffer, "Cel: %.1f cm     ", encoder.targetHeight);
 	LCD_Print(&lcd, lcd_buffer);
 
 	LCD_SetCursor(&lcd, 0, 1);

@@ -1,15 +1,16 @@
 #include "../Peryferia/encoder.h"
 
-void Encoder_Init(Encoder_t *enc, TIM_HandleTypeDef *htim, int32_t min, int32_t max) {
+void Encoder_Init(Encoder_t *enc, TIM_HandleTypeDef *htim, int32_t min, int32_t max, int32_t start_val) {
     enc->htim = htim;
     enc->minHeight = min;
     enc->maxHeight = max;
-    enc->targetHeight = min;
+    enc->targetHeight = start_val;
     enc->pulsesPerCm = 4.0f;
+
+    enc->offset = start_val * (int32_t)enc->pulsesPerCm;
 
     __HAL_TIM_SET_COUNTER(htim, 0);
     enc->lastCounterValue = 0;
-    enc->offset = 0;
 
     HAL_TIM_Encoder_Start(htim, TIM_CHANNEL_ALL);
 }
@@ -26,15 +27,15 @@ void Encoder_Update(Encoder_t *enc) {
         int32_t newHeight = enc->offset / (int32_t)enc->pulsesPerCm;
 
         if (newHeight < enc->minHeight) {
-        	enc->targetHeight = enc->minHeight;
+        	enc->targetHeight = (float)enc->minHeight;
         	enc->offset = (enc->minHeight * (int32_t)enc->pulsesPerCm);
         }
         else if (newHeight > enc->maxHeight) {
-        	enc->targetHeight = enc->maxHeight;
+        	enc->targetHeight = (float)enc->maxHeight;
         	enc->offset = (enc->maxHeight * (int32_t)enc->pulsesPerCm);
         }
         else {
-        	enc->targetHeight = newHeight;
+        	enc->targetHeight = (float)newHeight;
         }
     }
 }

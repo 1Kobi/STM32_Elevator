@@ -62,7 +62,7 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, signed char *pcTaskName)
     __disable_irq();
     while(1) {
         // Mrugaj czerwoną diodą LD3
-        HAL_GPIO_TogglePin(LD3_GPIO_Port, LD3_Pin);
+        HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
         for(volatile int i=0; i<1000000; i++);
     }
 }
